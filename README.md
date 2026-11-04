@@ -1,79 +1,35 @@
-# 🐬 Dolphin Emulator Linux Freeze Fixer (Intel Iris Xe / `i915` / Wayland)
+# dolphin-linux-freeze-fixer
 
-An automated configuration tool and troubleshooting guide that fixes hard system lockups (where the entire Ubuntu/Linux display freezes and requires holding the physical power button) while playing games on **Dolphin Emulator**.
+Small shell script to fix system-wide freezes when running Dolphin Emulator on Linux (Ubuntu/Wayland) with Intel integrated graphics (`i915` / Iris Xe).
 
----
+## Background
 
-## 🔍 The Problem: Why Does Dolphin Freeze the Entire Linux Desktop?
+Up until Dolphin 2606 (before upstream [PR #14835](https://github.com/dolphin-emu/dolphin/pull/14835)), Dolphin defaulted to the OpenGL backend on Linux.
 
-Many Linux users running **Ubuntu, Linux Mint, Fedora, or Arch** with **Intel Integrated Graphics (Iris Xe / Tiger Lake / Alder Lake / UHD — `i915` kernel driver)** under a **Wayland** session experience severe system lockups during gameplay:
+On Intel integrated GPUs (such as Tiger Lake / Iris Xe using the `i915` kernel driver and Mesa `iris`), heavy shader compilation or EFB-to-RAM reads under OpenGL frequently trigger a GPU hang (`ring timeout`). When the kernel attempts to reset the GPU, the Wayland compositor (Mutter/KWin) loses its DRM context and locks up the entire display, forcing a hard reboot via the power button.
 
-1. **GPU Overload:** During heavy emulation workloads (e.g., *Super Mario Galaxy*, *Mario Kart Wii*, *Metroid Prime*), Dolphin compiles complex shaders and performs Embedded Framebuffer (EFB) copies.
-2. **Driver Stall:** By default, Dolphin uses the **OpenGL** backend (`iris` Mesa driver). When combined with **EFB to RAM** (`EFBToTextureEnable = False`), synchronous shader compilation spikes, or CPU overclocking, the Intel render ring stalls for too long.
-3. **Kernel GPU Reset:** The Linux `i915` kernel driver detects a **GPU Hang** (`ring timeout`) and attempts an on-the-fly hardware **GPU Reset**.
-4. **Wayland Compositor Crash:** Because the Wayland display server (GNOME Mutter / KDE KWin) runs directly inside the active GPU context, resetting the GPU causes a `Pageflip timed out` fault. The compositor loses control of the screen buffer and freezes the image permanently, forcing a hard power-off.
+Switching the backend to Vulkan (Mesa ANV), enabling EFB-to-texture, and using asynchronous shader compilation prevents the GPU hang.
 
----
+## Usage
 
-## 🚀 Quick Fix (Automated 1-Command Script)
-
-Close Dolphin Emulator and run the following commands in your terminal:
+Close Dolphin and run:
 
 ```bash
 git clone https://github.com/jpferraz-git/dolphin-linux-freeze-fixer.git
 cd dolphin-linux-freeze-fixer
-chmod +x fix-dolphin-linux.sh
 ./fix-dolphin-linux.sh
 ```
 
-### What the Script Does:
-The script automatically detects your Dolphin installation (**Flatpak**, **Native `.deb`/AppImage**, or **Snap**), creates a timestamped **backup** of your `Dolphin.ini` and `GFX.ini` files, and applies the following stability settings:
+The script automatically locates your Dolphin config folder (Flatpak, native `~/.config/dolphin-emu`, or Snap), creates `.bak` backups of `Dolphin.ini` and `GFX.ini`, and sets:
 
-| File | Setting | Safe Value | Why It Fixes the Freeze |
-| :--- | :--- | :--- | :--- |
-| `Dolphin.ini` | `GFXBackend` | `Vulkan` | Switches from Mesa OpenGL (`iris`) to Vulkan (`ANV`), which handles pipeline synchronization much better on Intel `i915`. |
-| `Dolphin.ini` | `OverclockEnable` | `False` | Prevents unnecessary thermal and execution starvation on integrated CPU/iGPU chips. |
-| `GFX.ini` | `ShaderCompilationMode` | `3` (Async / Skip Drawing) | Prevents shader compilation spikes from stalling the GPU render ring and triggering an `i915` timeout. |
-| `GFX.ini` | `WaitForShadersBeforeStarting` | `True` | Pre-compiles cached shaders before starting the game. |
-| `GFX.ini` | `EFBToTextureEnable` | `True` | Uses *EFB to Texture* instead of *EFB to RAM*, eliminating the #1 cause of integrated GPU hangs in games like *Super Mario Galaxy*. |
+- `Dolphin.ini`:
+  - `GFXBackend = Vulkan`
+  - `OverclockEnable = False`
+- `GFX.ini`:
+  - `ShaderCompilationMode = 3` (Async / Skip Drawing)
+  - `WaitForShadersBeforeStarting = True`
+  - `EFBToTextureEnable = True`
 
----
+## License
 
-## 🛠️ Manual Configuration (Via Dolphin GUI)
-
-If you prefer to apply these settings manually inside Dolphin:
-
-1. Open Dolphin -> **Graphics** -> **General** tab:
-   * **Backend:** Change from `OpenGL` to **`Vulkan`**.
-   * **Shader Compilation:** Select **`Asynchronous (Skip Drawing)`** (or *Hybrid Ubershaders*).
-   * Check **`Compile Shaders Before Starting`**.
-2. Go to the **Hacks** tab:
-   * Check **`Store EFB Copies to Texture Only`**.
-3. Open **Config** -> **Advanced** tab:
-   * Uncheck **`Enable Emulated CPU Clock Override`**.
-
----
-
-## 🛡️ Extra Layer (Optional): Kernel Driver Protection (`i915`)
-
-If your Intel Tiger Lake / Iris Xe GPU still experiences occasional hangs under Wayland due to Panel Self-Refresh (PSR), you can add kernel parameters to GRUB:
-
-```bash
-sudo nano /etc/default/grub
-# Update the line below to include i915.enable_psr=0 and i915.reset=1:
-GRUB_CMDLINE_LINUX_DEFAULT="quiet splash i915.enable_psr=0 i915.reset=1"
-
-sudo update-grub
-sudo reboot
-```
-
-*Tip: You can also switch your login session from **Ubuntu (Wayland)** to **Ubuntu on Xorg** via the gear icon on the login screen, as Xorg recovers from `i915` GPU resets without freezing the entire display.*
-
----
-
-## 🤝 Contributing Upstream to Dolphin
-
-See [UPSTREAM_CONTRIBUTION.md](./UPSTREAM_CONTRIBUTION.md) for the technical bug report and C++ `DriverDetails` proposal for the official [`dolphin-emu/dolphin`](https://github.com/dolphin-emu/dolphin) repository.
-
-## 📄 License
-MIT License
+MIT
